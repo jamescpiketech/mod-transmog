@@ -594,6 +594,13 @@ TransmogAcoreStrings Transmogrification::Transmogrify(Player* player, Item* item
     }
     else
     {
+        // If the requested appearance matches the original item, just clear any existing transmog
+        if (itemTransmogrifier->GetEntry() == itemTransmogrified->GetEntry())
+        {
+            DeleteFakeEntry(player, slot, itemTransmogrified);
+            return LANG_ERR_UNTRANSMOG_OK;
+        }
+
         if (!CanTransmogrifyItemWithItem(player, itemTransmogrified->GetTemplate(), itemTransmogrifier->GetTemplate()))
         {
             //TC_LOG_DEBUG(LOG_FILTER_NETWORKIO, "WORLD: HandleTransmogrifyItems - Player (GUID: {}, name: {}) failed CanTransmogrifyItemWithItem ({} with {}).", player->GetGUIDLow(), player->GetName(), itemTransmogrified->GetEntry(), itemTransmogrifier->GetEntry());
