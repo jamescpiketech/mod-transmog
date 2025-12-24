@@ -501,6 +501,8 @@ void Transmogrification::SendFullSync(Player* player) const
     if (it == collectionCache.end() || it->second.empty())
         return;
 
+    ChatHandler(player->GetSession()).PSendSysMessage("TRANSMOG_SYNC_RESET");
+
     for (size_t i = 0; i < it->second.size(); i += SYNC_BATCH_SIZE)
     {
         size_t end = std::min(it->second.size(), i + size_t(SYNC_BATCH_SIZE));
