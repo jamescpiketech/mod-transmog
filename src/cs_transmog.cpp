@@ -40,17 +40,13 @@ public:
             { "",    HandleAddTransmogItem,       SEC_MODERATOR, Console::Yes },
         };
 
-        static ChatCommandTable applyTable =
-        {
-            { "apply", HandleApplyTransmogCommand, SEC_PLAYER, Console::No },
-        };
-
         static ChatCommandTable transmogTable =
         {
             { "add",       addCollectionTable                                        },
             { "",          HandleDisableTransMogVisual,   SEC_PLAYER,    Console::No },
             { "sync",      HandleSyncTransMogCommand,     SEC_PLAYER,    Console::No },
-            applyTable[0],
+            { "apply",     HandleApplyTransmogCommand,     SEC_PLAYER,    Console::No },
+            { "hide",      HandleHideTransmogCommand,      SEC_PLAYER,    Console::No },
             { "portable",  HandleTransmogPortableCommand, SEC_PLAYER,    Console::No },
             { "interface", HandleInterfaceOption,         SEC_PLAYER,    Console::No }
         };
@@ -72,18 +68,8 @@ public:
         return true;
     }
 
-    static bool HandleApplyTransmogCommand(ChatHandler* handler, std::string slotName, ItemTemplate const* itemTemplate)
+    static uint8 ResolveSlot(std::string slotName)
     {
-        Player* player = handler->GetPlayer();
-        if (!player || !itemTemplate)
-            return false;
-
-        if (!sTransmogrification->GetUseCollectionSystem())
-        {
-            handler->SendSysMessage("Transmog apply is only available when the collection system is enabled.");
-            return true;
-        }
-
         std::transform(slotName.begin(), slotName.end(), slotName.begin(), ::tolower);
 
         static const std::unordered_map<std::string, uint8> slotMap = {
@@ -118,6 +104,22 @@ public:
         if (auto it = slotMap.find(slotName); it != slotMap.end())
             slot = it->second;
 
+        return slot;
+    }
+
+    static bool HandleApplyTransmogCommand(ChatHandler* handler, std::string slotName, ItemTemplate const* itemTemplate)
+    {
+        Player* player = handler->GetPlayer();
+        if (!player || !itemTemplate)
+            return false;
+
+        if (!sTransmogrification->GetUseCollectionSystem())
+        {
+            handler->SendSysMessage("Transmog apply is only available when the collection system is enabled.");
+            return true;
+        }
+
+        uint8 slot = ResolveSlot(slotName);
         if (slot >= EQUIPMENT_SLOT_END)
         {
             handler->SendSysMessage("Invalid slot.");
@@ -134,6 +136,33 @@ public:
         }
 
         TransmogAcoreStrings res = sTransmogrification->Transmogrify(player, itemTemplate->ItemId, slot);
+        if (res == LANG_ERR_TRANSMOG_OK)
+            ChatHandler(player->GetSession()).SendNotification(LANG_ERR_TRANSMOG_OK);
+        else
+            ChatHandler(player->GetSession()).SendNotification(res);
+        return true;
+    }
+
+    static bool HandleHideTransmogCommand(ChatHandler* handler, std::string slotName)
+    {
+        Player* player = handler->GetPlayer();
+        if (!player)
+            return false;
+
+        uint8 slot = ResolveSlot(slotName);
+        if (slot >= EQUIPMENT_SLOT_END)
+        {
+            handler->SendSysMessage("Invalid slot.");
+            return false;
+        }
+
+        if (!sTransmogrification->GetAllowHiddenTransmog())
+        {
+            handler->SendSysMessage("Hidden transmogs are disabled.");
+            return true;
+        }
+
+        TransmogAcoreStrings res = sTransmogrification->Transmogrify(player, UINT_MAX, slot);
         if (res == LANG_ERR_TRANSMOG_OK)
             ChatHandler(player->GetSession()).SendNotification(LANG_ERR_TRANSMOG_OK);
         else
