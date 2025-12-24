@@ -4,6 +4,9 @@
 #include "SpellMgr.h"
 #include "Tokenize.h"
 #include "WorldSessionMgr.h"
+#include "Chat.h"
+#include <algorithm>
+#include <sstream>
 
 Transmogrification* Transmogrification::instance()
 {
@@ -481,6 +484,43 @@ bool Transmogrification::AddCollectedAppearance(uint32 accountId, uint32 itemId)
         return true;
     }
     return false;
+}
+
+namespace
+{
+    constexpr uint8 SYNC_BATCH_SIZE = 50;
+}
+
+void Transmogrification::SendFullSync(Player* player) const
+{
+    if (!player)
+        return;
+
+    uint32 accountId = player->GetSession()->GetAccountId();
+    auto it = collectionCache.find(accountId);
+    if (it == collectionCache.end() || it->second.empty())
+        return;
+
+    for (size_t i = 0; i < it->second.size(); i += SYNC_BATCH_SIZE)
+    {
+        size_t end = std::min(it->second.size(), i + size_t(SYNC_BATCH_SIZE));
+        std::ostringstream oss;
+        for (size_t j = i; j < end; ++j)
+        {
+            if (j > i)
+                oss << ",";
+            oss << it->second[j];
+        }
+        ChatHandler(player->GetSession()).PSendSysMessage("TRANSMOG_SYNC:{}", oss.str());
+    }
+}
+
+void Transmogrification::SendDeltaSync(Player* player, uint32 itemId) const
+{
+    if (!player || !itemId)
+        return;
+
+    ChatHandler(player->GetSession()).PSendSysMessage("TRANSMOG_SYNC:{}", itemId);
 }
 
 TransmogAcoreStrings Transmogrification::Transmogrify(Player* player, uint32 itemEntry, uint8 slot, /*uint32 newEntry, */bool no_cost) {

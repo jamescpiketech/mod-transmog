@@ -237,6 +237,9 @@ public:
     float GetScaledCostModifier() const;
     int32 GetCopperCost() const;
 
+    void SendFullSync(Player* player) const;
+    void SendDeltaSync(Player* player, uint32 itemId) const;
+
     bool GetRequireToken() const;
     uint32 GetTokenEntry() const;
     uint32 GetTokenAmount() const;

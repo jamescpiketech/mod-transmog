@@ -27,9 +27,76 @@ Cant transmogrify rediculus items // Foereaper: would be fun to stab people with
 #include "DatabaseEnv.h"
 #include "WorldPacket.h"
 #include "Opcodes.h"
+#include "AccountMgr.h"
+#include "ObjectAccessor.h"
+#include <algorithm>
 
 #define sT  sTransmogrification
 #define GTS session->GetAcoreString // dropped translation support, no one using?
+
+namespace
+{
+    const std::string RNDBOT_PREFIX = "RNDBOT";
+    const std::string AHBOT_PREFIX = "AHBOT";
+    std::unordered_map<uint32, ObjectGuid> s_activeSyncControllers;
+
+    bool IsExcludedAccount(uint32 accountId)
+    {
+        std::string name;
+        if (!AccountMgr::GetName(accountId, name))
+            return false;
+
+        std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+        return name.rfind(RNDBOT_PREFIX, 0) == 0 || name.rfind(AHBOT_PREFIX, 0) == 0;
+    }
+
+    bool RegisterPrimaryController(Player* player)
+    {
+        if (!player)
+            return false;
+
+        uint32 accountId = player->GetSession()->GetAccountId();
+        if (IsExcludedAccount(accountId))
+            return false;
+
+        auto it = s_activeSyncControllers.find(accountId);
+        if (it == s_activeSyncControllers.end())
+        {
+            s_activeSyncControllers[accountId] = player->GetGUID();
+            return true;
+        }
+
+        if (it->second == player->GetGUID())
+            return true;
+
+        if (ObjectAccessor::FindPlayer(it->second))
+            return false;
+
+        s_activeSyncControllers[accountId] = player->GetGUID();
+        return true;
+    }
+
+    bool IsPrimaryController(Player* player)
+    {
+        if (!player)
+            return false;
+
+        uint32 accountId = player->GetSession()->GetAccountId();
+        auto it = s_activeSyncControllers.find(accountId);
+        return it != s_activeSyncControllers.end() && it->second == player->GetGUID();
+    }
+
+    void UnregisterPrimaryController(Player* player)
+    {
+        if (!player)
+            return;
+
+        uint32 accountId = player->GetSession()->GetAccountId();
+        auto it = s_activeSyncControllers.find(accountId);
+        if (it != s_activeSyncControllers.end() && it->second == player->GetGUID())
+            s_activeSyncControllers.erase(it);
+    }
+}
 
 const std::unordered_map<LocaleConstant, std::string> TRANSMOG_TEXT_HOWWORKS = {
     {LOCALE_enUS, "How does transmogrification work?"},
@@ -1014,6 +1081,7 @@ private:
         uint32 itemId = itemTemplate->ItemId;
         uint32 accountId = player->GetSession()->GetAccountId();
         std::string itemName = itemTemplate -> Name1;
+        bool canSync = sT->GetUseCollectionSystem() && !IsExcludedAccount(accountId) && IsPrimaryController(player);
 
         // get locale item name
         int loc_idex = player->GetSession()->GetSessionDbLocaleIndex();
@@ -1030,6 +1098,9 @@ private:
                 ChatHandler(player->GetSession()).PSendSysMessage( R"(|c{}|Hitem:{}:0:0:0:0:0:0:0:0|h[{}]|h|r {})", itemQuality, itemId, itemName, GetLocaleText(locale, "added_appearance"));
 
             CharacterDatabase.Execute( "INSERT INTO custom_unlocked_appearances (account_id, item_template_id) VALUES ({}, {})", accountId, itemId);
+
+            if (canSync)
+                sT->SendDeltaSync(player, itemId);
         }
     }
 
@@ -1168,6 +1239,9 @@ public:
         if (sT->GetEnableSets())
             sT->LoadPlayerSets(playerGUID);
 #endif
+
+        if (sT->GetUseCollectionSystem() && RegisterPrimaryController(player))
+            sT->SendFullSync(player);
     }
 
     void OnPlayerLogout(Player* player) override
@@ -1182,6 +1256,9 @@ public:
         if (sT->GetEnableSets())
             sT->UnloadPlayerSets(pGUID);
 #endif
+
+        if (sT->GetUseCollectionSystem())
+            UnregisterPrimaryController(player);
     }
 
     void OnPlayerBeforeBuyItemFromVendor(Player* player, ObjectGuid vendorguid, uint32 /*vendorslot*/, uint32& itemEntry, uint8 /*count*/, uint8 /*bag*/, uint8 /*slot*/) override

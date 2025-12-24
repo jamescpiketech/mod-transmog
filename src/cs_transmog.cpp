@@ -23,6 +23,7 @@
 #include "Tokenize.h"
 #include "DatabaseEnv.h"
 #include "SpellMgr.h"
+#include <algorithm>
 
 using namespace Acore::ChatCommands;
 
@@ -39,11 +40,17 @@ public:
             { "",    HandleAddTransmogItem,       SEC_MODERATOR, Console::Yes },
         };
 
+        static ChatCommandTable applyTable =
+        {
+            { "apply", HandleApplyTransmogCommand, SEC_PLAYER, Console::No },
+        };
+
         static ChatCommandTable transmogTable =
         {
             { "add",       addCollectionTable                                        },
             { "",          HandleDisableTransMogVisual,   SEC_PLAYER,    Console::No },
             { "sync",      HandleSyncTransMogCommand,     SEC_PLAYER,    Console::No },
+            applyTable[0],
             { "portable",  HandleTransmogPortableCommand, SEC_PLAYER,    Console::No },
             { "interface", HandleInterfaceOption,         SEC_PLAYER,    Console::No }
         };
@@ -59,13 +66,53 @@ public:
     static bool HandleSyncTransMogCommand(ChatHandler* handler)
     {
         Player* player = handler->GetPlayer();
-        uint32 accountId = player->GetSession()->GetAccountId();
         handler->SendSysMessage(LANG_CMD_TRANSMOG_BEGIN_SYNC);
-        
-        for (uint32 itemId : sTransmogrification->collectionCache[accountId])
-            handler->PSendSysMessage("TRANSMOG_SYNC:{}", itemId);
-        
+        sTransmogrification->SendFullSync(player);
         handler->SendSysMessage(LANG_CMD_TRANSMOG_COMPLETE_SYNC);
+        return true;
+    }
+
+    static bool HandleApplyTransmogCommand(ChatHandler* handler, std::string slotName, ItemTemplate const* itemTemplate)
+    {
+        Player* player = handler->GetPlayer();
+        if (!player || !itemTemplate)
+            return false;
+
+        if (!sTransmogrification->GetUseCollectionSystem())
+        {
+            handler->SendSysMessage("Transmog apply is only available when the collection system is enabled.");
+            return true;
+        }
+
+        uint8 slot = EQUIPMENT_SLOT_END;
+        std::transform(slotName.begin(), slotName.end(), slotName.begin(), ::tolower);
+        if (slotName == "main" || slotName == "mh" || slotName == "mainhand")
+            slot = EQUIPMENT_SLOT_MAINHAND;
+        else if (slotName == "off" || slotName == "oh" || slotName == "offhand")
+            slot = EQUIPMENT_SLOT_OFFHAND;
+        else if (slotName == "ranged" || slotName == "range" || slotName == "rng")
+            slot = EQUIPMENT_SLOT_RANGED;
+
+        if (slot >= EQUIPMENT_SLOT_END)
+        {
+            handler->SendSysMessage("Invalid slot. Use main, off, or ranged.");
+            return false;
+        }
+
+        uint32 accountId = player->GetSession()->GetAccountId();
+        auto cacheIt = sTransmogrification->collectionCache.find(accountId);
+        if (cacheIt == sTransmogrification->collectionCache.end() ||
+            std::find(cacheIt->second.begin(), cacheIt->second.end(), itemTemplate->ItemId) == cacheIt->second.end())
+        {
+            handler->SendSysMessage("That appearance is not in your collection.");
+            return true;
+        }
+
+        TransmogAcoreStrings res = sTransmogrification->Transmogrify(player, itemTemplate->ItemId, slot);
+        if (res == LANG_ERR_TRANSMOG_OK)
+            ChatHandler(player->GetSession()).SendNotification(LANG_ERR_TRANSMOG_OK);
+        else
+            ChatHandler(player->GetSession()).SendNotification(res);
         return true;
     }
 
