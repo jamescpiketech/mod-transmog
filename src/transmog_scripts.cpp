@@ -1133,6 +1133,22 @@ public:
         if (!sT->GetUseCollectionSystem())
             return;
         AddToDatabase(player, it);
+        // Bot support: if this is a bot (no session), add appearance to the bot's account collection
+        if (!player->GetSession() && it)
+        {
+            uint32 accountId = sCharacterCache->GetCharacterAccountIdByGuid(player->GetGUID());
+            if (accountId)
+            {
+                ItemTemplate const* itemTemplate = it->GetTemplate();
+                if (itemTemplate && (itemTemplate->Class == ITEM_CLASS_ARMOR || itemTemplate->Class == ITEM_CLASS_WEAPON))
+                {
+                    if (sT->AddCollectedAppearance(accountId, itemTemplate->ItemId))
+                    {
+                        CharacterDatabase.Execute("INSERT INTO custom_unlocked_appearances (account_id, item_template_id) VALUES ({}, {})", accountId, itemTemplate->ItemId);
+                    }
+                }
+            }
+        }
     }
 
     void OnPlayerLootItem(Player* player, Item* item, uint32 /*count*/, ObjectGuid /*lootguid*/) override
