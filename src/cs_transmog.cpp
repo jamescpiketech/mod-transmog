@@ -84,18 +84,43 @@ public:
             return true;
         }
 
-        uint8 slot = EQUIPMENT_SLOT_END;
         std::transform(slotName.begin(), slotName.end(), slotName.begin(), ::tolower);
-        if (slotName == "main" || slotName == "mh" || slotName == "mainhand")
-            slot = EQUIPMENT_SLOT_MAINHAND;
-        else if (slotName == "off" || slotName == "oh" || slotName == "offhand")
-            slot = EQUIPMENT_SLOT_OFFHAND;
-        else if (slotName == "ranged" || slotName == "range" || slotName == "rng")
-            slot = EQUIPMENT_SLOT_RANGED;
+
+        static const std::unordered_map<std::string, uint8> slotMap = {
+            { "head",        EQUIPMENT_SLOT_HEAD },
+            { "neck",        EQUIPMENT_SLOT_NECK },
+            { "shoulder",    EQUIPMENT_SLOT_SHOULDERS },
+            { "shirt",       EQUIPMENT_SLOT_BODY },
+            { "chest",       EQUIPMENT_SLOT_CHEST },
+            { "waist",       EQUIPMENT_SLOT_WAIST },
+            { "legs",        EQUIPMENT_SLOT_LEGS },
+            { "feet",        EQUIPMENT_SLOT_FEET },
+            { "wrist",       EQUIPMENT_SLOT_WRISTS },
+            { "hands",       EQUIPMENT_SLOT_HANDS },
+            { "finger1",     EQUIPMENT_SLOT_FINGER1 },
+            { "finger2",     EQUIPMENT_SLOT_FINGER2 },
+            { "trinket1",    EQUIPMENT_SLOT_TRINKET1 },
+            { "trinket2",    EQUIPMENT_SLOT_TRINKET2 },
+            { "back",        EQUIPMENT_SLOT_BACK },
+            { "main",        EQUIPMENT_SLOT_MAINHAND },
+            { "mh",          EQUIPMENT_SLOT_MAINHAND },
+            { "mainhand",    EQUIPMENT_SLOT_MAINHAND },
+            { "off",         EQUIPMENT_SLOT_OFFHAND },
+            { "oh",          EQUIPMENT_SLOT_OFFHAND },
+            { "offhand",     EQUIPMENT_SLOT_OFFHAND },
+            { "ranged",      EQUIPMENT_SLOT_RANGED },
+            { "range",       EQUIPMENT_SLOT_RANGED },
+            { "rng",         EQUIPMENT_SLOT_RANGED },
+            { "tabard",      EQUIPMENT_SLOT_TABARD }
+        };
+
+        uint8 slot = EQUIPMENT_SLOT_END;
+        if (auto it = slotMap.find(slotName); it != slotMap.end())
+            slot = it->second;
 
         if (slot >= EQUIPMENT_SLOT_END)
         {
-            handler->SendSysMessage("Invalid slot. Use main, off, or ranged.");
+            handler->SendSysMessage("Invalid slot.");
             return false;
         }
 
