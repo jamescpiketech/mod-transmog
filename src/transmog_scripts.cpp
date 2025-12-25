@@ -1256,8 +1256,7 @@ public:
             sT->LoadPlayerSets(playerGUID);
 #endif
 
-        if (sT->GetUseCollectionSystem() && RegisterPrimaryController(player))
-            sT->SendFullSync(player);
+        // Full sync is now initiated client-side by the addon to refresh after reloads
     }
 
     void OnPlayerLogout(Player* player) override

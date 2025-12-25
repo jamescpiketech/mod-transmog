@@ -62,10 +62,8 @@ public:
     static bool HandleSyncTransMogCommand(ChatHandler* handler)
     {
         Player* player = handler->GetPlayer();
-        uint32 accountId = player->GetSession()->GetAccountId();
         handler->SendSysMessage(LANG_CMD_TRANSMOG_BEGIN_SYNC);
-        for (uint32 itemId : sTransmogrification->collectionCache[accountId])
-            handler->PSendSysMessage("TRANSMOG_SYNC:{}", itemId);
+        sTransmogrification->SendFullSync(player);
         handler->SendSysMessage(LANG_CMD_TRANSMOG_COMPLETE_SYNC);
         return true;
     }
