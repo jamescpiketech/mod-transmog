@@ -20,9 +20,14 @@
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Transmogrification.h"
-#include "Tokenize.h"
 #include "DatabaseEnv.h"
 #include "SpellMgr.h"
+#include "StringFormat.h"
+#include <cctype>
+#include <sstream>
+#include <optional>
+#include <string>
+#include <stdexcept>
 #include <algorithm>
 
 using namespace Acore::ChatCommands;
@@ -48,7 +53,11 @@ public:
             { "apply",     HandleApplyTransmogCommand,     SEC_PLAYER,    Console::No },
             { "hide",      HandleHideTransmogCommand,      SEC_PLAYER,    Console::No },
             { "portable",  HandleTransmogPortableCommand, SEC_PLAYER,    Console::No },
-            { "interface", HandleInterfaceOption,         SEC_PLAYER,    Console::No }
+            { "interface", HandleInterfaceOption,         SEC_PLAYER,    Console::No },
+            { "save",      HandleSaveSetCommand,          SEC_PLAYER,    Console::No },
+            { "load",      HandleLoadSetCommand,          SEC_PLAYER,    Console::No },
+            { "list",      HandleListSetsCommand,         SEC_PLAYER,    Console::No },
+            { "help",      HandleHelpCommand,             SEC_PLAYER,    Console::No }
         };
 
         static ChatCommandTable commandTable =
@@ -65,6 +74,229 @@ public:
         handler->SendSysMessage(LANG_CMD_TRANSMOG_BEGIN_SYNC);
         sTransmogrification->SendFullSync(player);
         handler->SendSysMessage(LANG_CMD_TRANSMOG_COMPLETE_SYNC);
+        return true;
+    }
+
+    static bool ValidateSetName(std::string& name, ChatHandler* handler)
+    {
+        auto trim = [](std::string& s)
+        {
+            while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
+                s.erase(s.begin());
+            while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+                s.pop_back();
+        };
+
+        trim(name);
+        if (name.empty())
+            return false;
+
+        for (unsigned char c : name)
+        {
+            if (!(std::isalnum(c) || c == ' '))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool HandleSaveSetCommand(ChatHandler* handler, Tail nameTail)
+    {
+        if (!sTransmogrification->GetEnableSets())
+        {
+            handler->SendSysMessage("Transmog sets are disabled.");
+            return true;
+        }
+
+        std::string name(nameTail.data(), nameTail.size());
+        if (!ValidateSetName(name, handler))
+        {
+            handler->SendSysMessage("INVALID - Use letters, numbers, and spaces only");
+            return true;
+        }
+
+        Player* player = handler->GetPlayer();
+        if (sTransmogrification->presetByName[player->GetGUID()].size() >= sTransmogrification->GetMaxSets())
+        {
+            handler->SendSysMessage("You have reached the maximum number of saved sets.");
+            return true;
+        }
+
+        int32 cost = 0;
+        std::map<uint8, uint32> items;
+        for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        {
+            if (!sTransmogrification->GetSlotName(slot, player->GetSession()))
+                continue;
+            if (Item* newItem = player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            {
+                uint32 entry = sTransmogrification->GetFakeEntry(newItem->GetGUID());
+                if (!entry)
+                    continue;
+                if (entry != HIDDEN_ITEM_ID)
+                {
+                    const ItemTemplate* temp = sObjectMgr->GetItemTemplate(entry);
+                    if (!temp)
+                        continue;
+                    if (!sTransmogrification->SuitableForTransmogrification(player, temp))
+                        continue;
+                    cost += sTransmogrification->GetSpecialPrice(temp);
+                }
+                items[slot] = entry;
+            }
+        }
+
+        if (items.empty())
+        {
+            handler->SendSysMessage("No transmogrified items to save.");
+            return true;
+        }
+
+        cost *= sTransmogrification->GetSetCostModifier();
+        cost += sTransmogrification->GetSetCopperCost();
+        if (!player->HasEnoughMoney(cost))
+        {
+            ChatHandler(player->GetSession()).SendNotification(LANG_ERR_TRANSMOG_NOT_ENOUGH_MONEY);
+            return true;
+        }
+
+        uint8 freePreset = UINT8_MAX;
+        for (uint8 presetID = 0; presetID < sTransmogrification->GetMaxSets(); ++presetID)
+        {
+            if (sTransmogrification->presetByName[player->GetGUID()].find(presetID) == sTransmogrification->presetByName[player->GetGUID()].end())
+            {
+                freePreset = presetID;
+                break;
+            }
+        }
+        if (freePreset == UINT8_MAX)
+        {
+            handler->SendSysMessage("No free preset slots available.");
+            return true;
+        }
+
+        std::ostringstream ss;
+        for (auto const& it : items)
+        {
+            ss << uint32(it.first) << ' ' << it.second << ' ';
+            sTransmogrification->presetById[player->GetGUID()][freePreset][it.first] = it.second;
+        }
+        sTransmogrification->presetByName[player->GetGUID()][freePreset] = name;
+        CharacterDatabase.Execute("REPLACE INTO `custom_transmogrification_sets` (`Owner`, `PresetID`, `SetName`, `SetData`) VALUES ({}, {}, \"{}\", \"{}\")", player->GetGUID().GetCounter(), uint32(freePreset), name, ss.str());
+        if (cost)
+            player->ModifyMoney(-cost);
+
+        {
+            std::string line = Acore::StringFormat("Saved set {}: {}", uint32(freePreset) + 1, name);
+            handler->SendSysMessage(line.c_str());
+        }
+        return true;
+    }
+
+    static std::optional<uint8> ResolvePresetId(Player* player, std::string const& input)
+    {
+        // try numeric 1-based
+        bool numeric = !input.empty() && std::all_of(input.begin(), input.end(), ::isdigit);
+        if (numeric)
+        {
+            uint32 idx = 0;
+            try
+            {
+                idx = static_cast<uint32>(std::stoul(input));
+            }
+            catch (...)
+            {
+                idx = 0;
+            }
+            if (idx == 0)
+                return std::nullopt;
+            uint8 presetId = uint8(idx - 1);
+            if (sTransmogrification->presetByName[player->GetGUID()].count(presetId))
+                return presetId;
+        }
+
+        // case-insensitive name match
+        std::string lower = input;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        for (auto const& it : sTransmogrification->presetByName[player->GetGUID()])
+        {
+            std::string candidate = it.second;
+            std::transform(candidate.begin(), candidate.end(), candidate.begin(), ::tolower);
+            if (candidate == lower)
+                return it.first;
+        }
+
+        return std::nullopt;
+    }
+
+    static bool HandleLoadSetCommand(ChatHandler* handler, Tail nameTail)
+    {
+        if (!sTransmogrification->GetEnableSets())
+        {
+            handler->SendSysMessage("Transmog sets are disabled.");
+            return true;
+        }
+
+        std::string input(nameTail.data(), nameTail.size());
+        if (input.empty())
+        {
+            handler->SendSysMessage("Usage: .transmog load <name|number>");
+            return false;
+        }
+
+        Player* player = handler->GetPlayer();
+        auto presetOpt = ResolvePresetId(player, input);
+        if (!presetOpt)
+        {
+            handler->SendSysMessage("Set not found.");
+            return true;
+        }
+        uint8 presetId = *presetOpt;
+
+        for (auto const& it : sTransmogrification->presetById[player->GetGUID()][presetId])
+        {
+            if (Item* item = player->GetItemByPos(INVENTORY_SLOT_BAG_0, it.first))
+                sTransmogrification->PresetTransmog(player, item, it.second, it.first);
+        }
+
+        {
+            std::string line = Acore::StringFormat("Loaded set {}: {}", uint32(presetId) + 1, sTransmogrification->presetByName[player->GetGUID()][presetId]);
+            handler->SendSysMessage(line.c_str());
+        }
+        return true;
+    }
+
+    static bool HandleListSetsCommand(ChatHandler* handler)
+    {
+        if (!sTransmogrification->GetEnableSets())
+        {
+            handler->SendSysMessage("Transmog sets are disabled.");
+            return true;
+        }
+
+        Player* player = handler->GetPlayer();
+        if (sTransmogrification->presetByName[player->GetGUID()].empty())
+        {
+            handler->SendSysMessage("No saved sets.");
+            return true;
+        }
+
+        handler->SendSysMessage("Saved transmog sets:");
+        for (auto const& it : sTransmogrification->presetByName[player->GetGUID()])
+        {
+            std::string line = Acore::StringFormat("  {}: {}", uint32(it.first) + 1, it.second);
+            handler->SendSysMessage(line.c_str());
+        }
+        return true;
+    }
+
+    static bool HandleHelpCommand(ChatHandler* handler)
+    {
+        handler->SendSysMessage("Transmog commands:");
+        handler->SendSysMessage("  .transmog save <name>  - Save current transmogs as a set (names allow letters/numbers/spaces)");
+        handler->SendSysMessage("  .transmog load <name|number> - Load a saved set");
+        handler->SendSysMessage("  .transmog list - List your saved sets");
+        handler->SendSysMessage("  .transmog sync - Sync appearances");
         return true;
     }
 

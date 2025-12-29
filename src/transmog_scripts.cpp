@@ -30,6 +30,7 @@ Cant transmogrify rediculus items // Foereaper: would be fun to stab people with
 #include "AccountMgr.h"
 #include "ObjectAccessor.h"
 #include <algorithm>
+#include <cctype>
 
 #define sT  sTransmogrification
 #define GTS session->GetAcoreString // dropped translation support, no one using?
@@ -243,51 +244,51 @@ const std::unordered_map<LocaleConstant, std::string> TRANSMOG_TEXT_CONFIRM_DELE
 };
 
 const std::unordered_map<LocaleConstant, std::string> TRANSMOG_TEXT_INSERTSETNAME = {
-    {LOCALE_enUS, "Insert set name"},
-    {LOCALE_koKR, "세트 이름 입력"},
-    {LOCALE_frFR, "Insérer le nom de l'ensemble"},
-    {LOCALE_deDE, "Set-Namen einfügen"},
-    {LOCALE_zhCN, "插入套装名称"},
-    {LOCALE_zhTW, "輸入套裝名稱"},
-    {LOCALE_esES, "Insertar nombre del conjunto"},
-    {LOCALE_esMX, "Insertar nombre del conjunto"},
-    {LOCALE_ruRU, "Введите имя комплекта"}
+    {LOCALE_enUS, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_koKR, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_frFR, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_deDE, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_zhCN, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_zhTW, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_esES, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_esMX, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_ruRU, "WARNING - Click ACCEPT instead of pressing ENTER"}
 };
 
 const std::unordered_map<LocaleConstant, std::string> TRANSMOG_TEXT_SEARCH = {
-    {LOCALE_enUS, "Search..."},
-    {LOCALE_koKR, "검색..."},
-    {LOCALE_frFR, "Rechercher..."},
-    {LOCALE_deDE, "Suche..."},
-    {LOCALE_zhCN, "搜索..."},
-    {LOCALE_zhTW, "搜索..."},
-    {LOCALE_esES, "Buscar..."},
-    {LOCALE_esMX, "Buscar..."},
-    {LOCALE_ruRU, "Поиск..."}
+    {LOCALE_enUS, "Search"},
+    {LOCALE_koKR, "Search"},
+    {LOCALE_frFR, "Search"},
+    {LOCALE_deDE, "Search"},
+    {LOCALE_zhCN, "Search"},
+    {LOCALE_zhTW, "Search"},
+    {LOCALE_esES, "Search"},
+    {LOCALE_esMX, "Search"},
+    {LOCALE_ruRU, "Search"}
 };
 
 const std::unordered_map<LocaleConstant, std::string> TRANSMOG_TEXT_SEARCHING_FOR = {
-    {LOCALE_enUS, "Searching for: "},
-    {LOCALE_koKR, "검색 중: "},
-    {LOCALE_frFR, "Recherche en cours: "},
-    {LOCALE_deDE, "Suche nach: "},
-    {LOCALE_zhCN, "正在搜索： "},
-    {LOCALE_zhTW, "正在搜尋："},
-    {LOCALE_esES, "Buscando:" },
-    {LOCALE_esMX, "Buscando: "},
-    {LOCALE_ruRU, "Поиск: "}
+    {LOCALE_enUS, "Search: "},
+    {LOCALE_koKR, "Search: "},
+    {LOCALE_frFR, "Search: "},
+    {LOCALE_deDE, "Search: "},
+    {LOCALE_zhCN, "Search: "},
+    {LOCALE_zhTW, "Search: "},
+    {LOCALE_esES, "Search: "},
+    {LOCALE_esMX, "Search: "},
+    {LOCALE_ruRU, "Search: "}
 };
 
 const std::unordered_map<LocaleConstant, std::string> TRANSMOG_TEXT_SEARCH_FOR_ITEM = {
-    {LOCALE_enUS, "Search for what item?"},
-    {LOCALE_koKR, "어떤 아이템을 찾으시겠습니까?"},
-    {LOCALE_frFR, "Rechercher quel objet ?"},
-    {LOCALE_deDE, "Nach welchem Gegenstand suchen?"},
-    {LOCALE_zhCN, "搜索哪个物品？"},
-    {LOCALE_zhTW, "搜索哪個物品？"},
-    {LOCALE_esES, "¿Buscar un objeto?"},
-    {LOCALE_esMX, "¿Buscar un objeto?"},
-    {LOCALE_ruRU, "Поиск предмета:"}
+    {LOCALE_enUS, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_koKR, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_frFR, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_deDE, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_zhCN, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_zhTW, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_esES, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_esMX, "WARNING - Click ACCEPT instead of pressing ENTER"},
+    {LOCALE_ruRU, "WARNING - Click ACCEPT instead of pressing ENTER"}
 };
 
 const std::unordered_map<LocaleConstant, std::string> TRANSMOG_TEXT_CONFIRM_HIDE_ITEM = {
@@ -794,8 +795,30 @@ public:
             return true;
         }
         std::string name(code);
-        if (name.find('"') != std::string::npos || name.find('\\') != std::string::npos)
-            ChatHandler(player->GetSession()).SendNotification(LANG_PRESET_ERR_INVALID_NAME);
+        auto validateName = [](std::string& value) -> bool
+        {
+            while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())))
+                value.erase(value.begin());
+            while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())))
+                value.pop_back();
+
+            if (value.empty())
+                return false;
+
+            for (unsigned char c : value)
+            {
+                if (!(std::isalnum(c) || c == ' '))
+                    return false;
+            }
+            return true;
+        };
+
+        if (!validateName(name))
+        {
+            ChatHandler(player->GetSession()).SendNotification("INVALID - Use letters, numbers, and spaces only");
+            OnGossipSelect(player, creature, EQUIPMENT_SLOT_END + 8, 0);
+            return true;
+        }
         else
         {
             for (uint8 presetID = 0; presetID < sT->GetMaxSets(); ++presetID) // should never reach over max
@@ -887,25 +910,25 @@ public:
             std::string searchDisplayValue(hasSearchString ? searchStringIterator->second : GetLocaleText(locale, "search"));
             std::vector<Item*> allowedItems = GetValidTransmogs(player, oldItem, hasSearchString, searchDisplayValue);
 
+            // Always show the search header when a search is active, even if no results
+            if (pageNumber == 0)
+            {
+                if (hasSearchString)
+                {
+                    AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, sT->GetItemIcon(30620, 30, 30, -18, 0) + GetLocaleText(locale, "searching_for") + searchDisplayValue, slot + 1, 0, GetLocaleText(locale, "search_for_item"), 0, true);
+                }
+                else
+                {
+                    AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, sT->GetItemIcon(30620, 30, 30, -18, 0) + GetLocaleText(locale, "search"), slot + 1, 0, GetLocaleText(locale, "search_for_item"), 0, true);
+                }
+            }
+
             if (allowedItems.size() > 0)
             {
                 lastPage = false;
                 // Offset values to add Search gossip item
-                if (pageNumber == 0)
-                {
-                    if (hasSearchString)
-                    {
-                        AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, sT->GetItemIcon(30620, 30, 30, -18, 0) + GetLocaleText(locale, "searching_for") + searchDisplayValue, slot + 1, 0, GetLocaleText(locale, "search_for_item"), 0, true);
-                    }
-                    else
-                    {
-                        AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, sT->GetItemIcon(30620, 30, 30, -18, 0) + GetLocaleText(locale, "search"), slot + 1, 0, GetLocaleText(locale, "search_for_item"), 0, true);
-                    }
-                }
-                else
-                {
+                if (pageNumber != 0)
                     startValue--;
-                }
                 if (sT->GetAllowHiddenTransmog())
                 {
                     // Offset the start and end values to make space for invisible item entry
