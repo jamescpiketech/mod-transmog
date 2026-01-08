@@ -57,6 +57,7 @@ public:
             { "save",      HandleSaveSetCommand,          SEC_PLAYER,    Console::No },
             { "load",      HandleLoadSetCommand,          SEC_PLAYER,    Console::No },
             { "list",      HandleListSetsCommand,         SEC_PLAYER,    Console::No },
+            { "delete",    HandleDeleteSetCommand,        SEC_PLAYER,    Console::No },
             { "help",      HandleHelpCommand,             SEC_PLAYER,    Console::No }
         };
 
@@ -214,6 +215,50 @@ public:
         return true;
     }
 
+    static bool HandleDeleteSetCommand(ChatHandler* handler, Tail nameTail)
+    {
+        if (!sTransmogrification->GetEnableSets())
+        {
+            handler->SendSysMessage("Transmog sets are disabled.");
+            return true;
+        }
+
+        std::string name(nameTail.data(), nameTail.size());
+        if (!ValidateSetName(name, handler))
+        {
+            handler->SendSysMessage("INVALID - Use letters, numbers, and spaces only");
+            return true;
+        }
+
+        Player* player = handler->GetPlayer();
+        auto& presets = sTransmogrification->presetByName[player->GetGUID()];
+        std::optional<uint8> presetId;
+        for (auto const& it : presets)
+        {
+            if (it.second == name)
+            {
+                presetId = it.first;
+                break;
+            }
+        }
+
+        if (!presetId)
+        {
+            handler->SendSysMessage("Set not found.");
+            return true;
+        }
+
+        sTransmogrification->presetByName[player->GetGUID()].erase(*presetId);
+        sTransmogrification->presetById[player->GetGUID()].erase(*presetId);
+        CharacterDatabase.Execute("DELETE FROM `custom_transmogrification_sets` WHERE Owner = {} AND PresetID = {}", player->GetGUID().GetCounter(), uint32(*presetId));
+
+        {
+            std::string line = Acore::StringFormat("Deleted set {}: {}", uint32(*presetId) + 1, name);
+            handler->SendSysMessage(line.c_str());
+        }
+        return true;
+    }
+
     static std::optional<uint8> ResolvePresetId(Player* player, std::string const& input)
     {
         // try numeric 1-based
@@ -316,6 +361,7 @@ public:
         handler->SendSysMessage("Transmog commands:");
         handler->SendSysMessage("  .transmog save <name>  - Save current transmogs as a set (names allow letters/numbers/spaces)");
         handler->SendSysMessage("  .transmog load <name|number> - Load a saved set");
+        handler->SendSysMessage("  .transmog delete <name> - Delete a saved set (exact name, case sensitive)");
         handler->SendSysMessage("  .transmog list - List your saved sets");
         handler->SendSysMessage("  .transmog sync - Sync appearances");
         return true;
