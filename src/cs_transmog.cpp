@@ -116,7 +116,19 @@ public:
         }
 
         Player* player = handler->GetPlayer();
-        if (sTransmogrification->presetByName[player->GetGUID()].size() >= sTransmogrification->GetMaxSets())
+
+        // Exact name match to decide whether we overwrite an existing preset.
+        std::optional<uint8> overwritePreset;
+        for (auto const& it : sTransmogrification->presetByName[player->GetGUID()])
+        {
+            if (it.second == name)
+            {
+                overwritePreset = it.first;
+                break;
+            }
+        }
+
+        if (!overwritePreset && sTransmogrification->presetByName[player->GetGUID()].size() >= sTransmogrification->GetMaxSets())
         {
             handler->SendSysMessage("You have reached the maximum number of saved sets.");
             return true;
@@ -160,34 +172,43 @@ public:
             return true;
         }
 
-        uint8 freePreset = UINT8_MAX;
-        for (uint8 presetID = 0; presetID < sTransmogrification->GetMaxSets(); ++presetID)
+        uint8 presetIdToUse = UINT8_MAX;
+        if (overwritePreset)
         {
-            if (sTransmogrification->presetByName[player->GetGUID()].find(presetID) == sTransmogrification->presetByName[player->GetGUID()].end())
-            {
-                freePreset = presetID;
-                break;
-            }
+            presetIdToUse = *overwritePreset;
         }
-        if (freePreset == UINT8_MAX)
+        else
         {
-            handler->SendSysMessage("No free preset slots available.");
-            return true;
+            for (uint8 presetID = 0; presetID < sTransmogrification->GetMaxSets(); ++presetID)
+            {
+                if (sTransmogrification->presetByName[player->GetGUID()].find(presetID) == sTransmogrification->presetByName[player->GetGUID()].end())
+                {
+                    presetIdToUse = presetID;
+                    break;
+                }
+            }
+            if (presetIdToUse == UINT8_MAX)
+            {
+                handler->SendSysMessage("No free preset slots available.");
+                return true;
+            }
         }
 
         std::ostringstream ss;
+        // Clear old cached entries when overwriting.
+        sTransmogrification->presetById[player->GetGUID()][presetIdToUse].clear();
         for (auto const& it : items)
         {
             ss << uint32(it.first) << ' ' << it.second << ' ';
-            sTransmogrification->presetById[player->GetGUID()][freePreset][it.first] = it.second;
+            sTransmogrification->presetById[player->GetGUID()][presetIdToUse][it.first] = it.second;
         }
-        sTransmogrification->presetByName[player->GetGUID()][freePreset] = name;
-        CharacterDatabase.Execute("REPLACE INTO `custom_transmogrification_sets` (`Owner`, `PresetID`, `SetName`, `SetData`) VALUES ({}, {}, \"{}\", \"{}\")", player->GetGUID().GetCounter(), uint32(freePreset), name, ss.str());
+        sTransmogrification->presetByName[player->GetGUID()][presetIdToUse] = name;
+        CharacterDatabase.Execute("REPLACE INTO `custom_transmogrification_sets` (`Owner`, `PresetID`, `SetName`, `SetData`) VALUES ({}, {}, \"{}\", \"{}\")", player->GetGUID().GetCounter(), uint32(presetIdToUse), name, ss.str());
         if (cost)
             player->ModifyMoney(-cost);
 
         {
-            std::string line = Acore::StringFormat("Saved set {}: {}", uint32(freePreset) + 1, name);
+            std::string line = Acore::StringFormat("Saved set {}: {}", uint32(presetIdToUse) + 1, name);
             handler->SendSysMessage(line.c_str());
         }
         return true;
